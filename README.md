@@ -1,6 +1,6 @@
 FedDif paper works
 =
-IEEE Trans. Communications (deadline: 2022. 02. 28)
+IEEE Journal on Selected Areas in Communications (deadline: 2022. 04. 15)
 -
 ### Todo list
 1. Implementation of FedDif
