@@ -1,4 +1,4 @@
-FedDif paper works
+FedDif paper work
 =
 IEEE Journal on Selected Areas in Communications (deadline: 2022. 04. 15)
 -
