@@ -1,8 +1,7 @@
 Official code of the implementation for the below paper
 =
-"Communication-Efficient Diffusion Strategy for Performance Improvement of Federated Learning with Non-IID Data"
--
-IEEE Journal on Selected Areas in Communications - Special Issue on Communication-Efficient Distributed Learning over Networks
+### "Communication-Efficient Diffusion Strategy for Performance Improvement of Federated Learning with Non-IID Data"
+### IEEE Journal on Selected Areas in Communications - Special Issue on Communication-Efficient Distributed Learning over Networks
 -
 ### Todo list
 1. Implementation of FedDif
