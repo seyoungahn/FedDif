@@ -1,9 +1,9 @@
 Official code of the implementation for the below paper
 =
-### "Communication-Efficient Diffusion Strategy for Performance Improvement of Federated Learning with Non-IID Data"
-### IEEE Journal on Selected Areas in Communications - Special Issue on Communication-Efficient Distributed Learning over Networks
--
-### Todo list
+#### "Communication-Efficient Diffusion Strategy for Performance Improvement of Federated Learning with Non-IID Data"
+#### IEEE Journal on Selected Areas in Communications - Special Issue on Communication-Efficient Distributed Learning over Networks
+
+#### Todo list
 1. Implementation of FedDif
 2. Implementations of reference works
 * F. Sattler, S. Wiedemann, K. -R. Müller and W. Samek, "Robust and Communication-Efficient Federated Learning From Non-i.i.d. Data," in IEEE Transactions on Neural Networks and Learning Systems, vol. 31, no. 9, pp. 3400-3413, Sept. 2020, doi: 10.1109/TNNLS.2019.2944481.
