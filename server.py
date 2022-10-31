@@ -1,5 +1,4 @@
 import random
-import queue
 
 from node import *
 import models.resnet as resnet
@@ -175,7 +174,6 @@ class Server(Node):
             num_sub_frames += 1
 
             num_PUE_RB = self.poisson_process(1200, 1, 1484)
-            # print(num_CUE_RB, num_CUE_RB * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * 0.5)
             list_PUE_dist = [random.random() + 0.2 for _ in range(self.params.n_cusers + self.params.n_users)]
 
             flag = True
@@ -207,7 +205,6 @@ class Server(Node):
             num_sub_frames += 1
 
             num_PUE_RB = self.poisson_process(1200, 1, 1484)
-            # print(num_CUE_RB, num_CUE_RB * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * 0.5)
             list_PUE_dist = [random.random() + 0.2 for _ in range(self.params.n_cusers + self.params.n_users)]
             flag = True
             for i in range(self.params.n_users):
@@ -228,7 +225,6 @@ class Server(Node):
         return num_RBs, num_sub_frames
 
     def scheduling(self, cond, mat_value, mat_num_bits, mat_num_RBs):
-        # print("S1")
         policy = [-1 for _ in range(self.params.n_users)]
 
         profit_matrix = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]
@@ -239,7 +235,6 @@ class Server(Node):
                 else:
                     profit_matrix[i][j] = -ceil(mat_value[i][j] / mat_num_bits[i][j] * 8e13)
         results = self.hungarian.compute(profit_matrix)
-        # print_matrix(profit_matrix)
 
         if results is False:
             return policy, 0, 0
@@ -256,11 +251,8 @@ class Server(Node):
             SNR_dB = utils.SNR_user(self.params, from_PUE, to_PUE, 0)
             SNR = 10.**(SNR_dB / 10.)
 
-            # utils.write_csv(self.save_dir, "test", [datarate], ["spectral efficiency"])
-            # print(datarate, math.log2(1 - SNR * math.log(0.95)), SNR)
 
             outage = datarate - math.log2(1 - SNR * math.log(0.95))
-            # outage = 1 - math.exp(-(2**(datarate) - 1) / SNR)
             if outage < 0:
                 continue
 
@@ -291,9 +283,7 @@ class Server(Node):
             price_list = [0 for _ in range(self.n_model)]
             for model in self.models:
                 if model.curr_trainer in user.neighbors:
-                    # prelim_DoL = model.calc_DoL(user, self.PUE_list)
                     prelim_DoL = model.get_next_DoL(user.DSI, len(user.trainloader.dataset))
-                    # valuation = np.linalg.norm(prelim_DoL - IID, ord=2)
                     valuation = utils.prob_dist(prelim_DoL, IID, self.params.t_dist)
                     price_list[model.id] = valuation
             bidding_price.append(price_list)
@@ -311,15 +301,10 @@ class Server(Node):
                     value[model.id][user.id] = -math.inf
                     num_bits[model.id][user.id] = -math.inf
                 else:
-                    # prev_IID_dist = np.linalg.norm(np.array(model.prev_DoL) - IID, ord=2)
                     prev_IID_dist = utils.prob_dist(np.array(model.prev_DoL), IID, self.params.t_dist)
                     value[model.id][user.id] = prev_IID_dist - bidding_price[user.id][model.id]
                     n_RBs[model.id][user.id] = ceil(self.params.s_model_size / (self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * utils.spectral_efficiency_user(self.params, from_user, user, 0)))
-                    # print("n_min", n_min)
                     num_bits[model.id][user.id] = self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * n_RBs[model.id][user.id]
-                    # print("num_bits", num_bits[model.id][user.id])
-                    # print("SE", utils.spectral_efficiency_user(self.params, from_user, user, 0))
-                    # print("SNR_dB", utils.SNR_user(self.params, from_user, user, 0))
 
         policy_model, num_RBs, num_sub_frames = self.scheduling(self.params.rho * self.params.n_users, value, num_bits, n_RBs)
         for i in range(self.n_model):
@@ -416,7 +401,6 @@ class Server(Node):
         global_acc_temp = global_valid_metrics['accuracy']
         global_loss_temp = global_valid_metrics['loss']
         return global_acc_temp, global_loss_temp
-        # self.write_csv(global_name, global_data, global_fieldnames)
 
     def save_checkpoint(self, save_dir):
         ### Save the parameters of the global model
