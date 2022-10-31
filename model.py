@@ -42,7 +42,8 @@ class Model:
         logging.info("\t+ Diffusion chain: {}".format(self.diffusion_subchain))
         for epoch in range(self.params.t_local_epochs):
             logging.info("\t  => Epoch {}/{}".format(epoch, self.params.t_local_epochs))
-            train_metrics = methods.FedAvg.train(self.ML_model, self.optimizer, self.lr_scheduler, utils.loss_function, trainloader, utils.metrics, self.params)
+            # train_metrics = methods.FedAvg.train(self.ML_model, self.optimizer, self.lr_scheduler, utils.loss_function, trainloader, utils.metrics, self.params)
+            train_metrics = methods.FedAvg.train_FedDif(self.ML_model, self.optimizer, utils.loss_function, trainloader, utils.metrics, self.params)
 
         utils.save_local_checkpoint({
             'state_dict': self.ML_model.state_dict()

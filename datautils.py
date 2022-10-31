@@ -1,8 +1,3 @@
-"""
-CIFAR-10 data normalization reference:
-https://github.com/Armour/pytorch-nn-practice/blob/master/utils/meanstd.py
-"""
-
 import random
 import os
 import numpy as np
@@ -229,9 +224,9 @@ def fetch_noniid_dataloader(params):
     labels = trainset.targets
 
     # Sort labels
-    # label별로 indexing
-    # -> (index, label) pair들을 label 기준으로 정렬
-    # -> pair들에서 index만 추려내기 (index는 data와 mapping 되어있음)
+    # Indexing by each label
+    # -> Label-wise sort of (index, label) pairs
+    # -> Tearing out the index column in the pairs (indexes are mapped to data)
     idxs_labels = np.vstack((idxs, labels))
     idxs_labels = idxs_labels[:, idxs_labels[1, :].argsort()]
     idxs = idxs_labels[0, :]
@@ -266,88 +261,6 @@ def fetch_noniid_dataloader(params):
     testloader = torch.utils.data.DataLoader(testset, batch_size=params.t_batch_size, shuffle=False, num_workers=params.t_num_workers, pin_memory=params.t_cuda)
 
     return trainloader, testloader, DSI_list
-
-# def fetch_noniid_dirichlet_dataloader(params):
-#     """
-#         Sample non-IID dataloader
-#         :param types:
-#         :param params:
-#         :return:
-#         """
-#     if params.t_augmentation == "yes":
-#         train_transformer = transforms.Compose([
-#             transforms.RandomCrop(32, padding=4),
-#             transforms.RandomHorizontalFlip(),
-#             transforms.ToTensor(),
-#             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-#         ])
-#     else:
-#         train_transformer = transforms.Compose([
-#             transforms.ToTensor(),
-#             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-#         ])
-#
-#     test_transformer = transforms.Compose([
-#         transforms.ToTensor(),
-#         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-#     ])
-#     data_path = params.t_dataset_path + '/' + params.t_dataset_type
-#     if params.t_dataset_type == 'cifar10':
-#         trainset = torchvision.datasets.CIFAR10(root=data_path, train=True, download=True, transform=train_transformer)
-#         testset = torchvision.datasets.CIFAR10(root=data_path, train=False, download=True, transform=test_transformer)
-#     elif params.t_dataset_type == 'emnist':
-#         trainset = torchvision.datasets.EMNIST(root=data_path, train=True, download=True, transform=train_transformer)
-#         testset = torchvision.datasets.EMNIST(root=data_path, train=False, download=True, transform=test_transformer)
-#     elif params.t_dataset_type == 'svhn':
-#         trainset = torchvision.datasets.SVHN(root=data_path, train=True, download=True, transform=train_transformer)
-#         testset = torchvision.datasets.SVHN(root=data_path, train=False, download=True, transform=test_transformer)
-#
-#     num_classes = len(trainset.classes)
-#     labels = trainset.targets
-#     idxs = np.arange(len(trainset.data))
-#
-#     # Sort labels
-#     # label별로 indexing
-#     # -> (index, label) pair들을 label 기준으로 정렬
-#     # -> pair들에서 index만 추려내기 (index는 data와 mapping 되어있음)
-#     idxs_labels = np.vstack((idxs, labels))
-#     idxs_labels = idxs_labels[:, idxs_labels[1, :].argsort()]
-#     idxs = idxs_labels[0, :]
-#
-#     idxs_class = []
-#
-#     for i in range(10):
-#         idxs_class.append(idxs[i * 5000:(i + 1) * 5000])
-#
-#     idx = [torch.where(torch.tensor(trainset.targets) == i) for i in range(num_classes)]
-#     train_data = [trainset.data[idx[i][0]] for i in range(num_classes)]
-#
-#     s = np.random.dirichlet(np.ones(num_classes) * params.alpha, params.n_users)
-#     data_dist = np.zeros((params.n_users, num_classes))
-#     for i in range(params.n_users):
-#         data_dist[i] = ((s[i] * len(train_data[0])).astype('int') / (s[i] * len(train_data[0])).astype('int').sum() * len(train_data[0])).astype('int')
-#         data_num = data_dist[i].sum()
-#         data_dist[i][np.random.randint(low=0, high=num_classes)] += ((len(train_data[0]) - data_num))
-#         data_dist = data_dist.astype('int')
-#
-#     DSI_list = data_dist / (len(trainset.data) / params.n_users) # n_users * n_class
-#
-#     trainset_users = {i: np.array([]) for i in range(params.n_users)}
-#
-#     for i in range(params.n_users):
-#         for j in range(num_classes):
-#             if data_dist[i][j] != 0:
-#                 d_index = np.random.randint(low=0, high=len(train_data[j]), size=data_dist[i][j]) # 0 ~ 5000까지에서 data_dist만큼 뽑음
-#                 trainset_users[i] = np.concatenate((trainset_users[i], idxs_class[j][d_index]), axis=0)
-#
-#     trainloader = []
-#
-#     for i in range(params.n_users):
-#         trainloader.append(torch.utils.data.DataLoader(DatasetSplit(trainset, trainset_users[i]), batch_size=params.t_batch_size, shuffle=True, num_workers=params.t_num_workers, pin_memory=params.t_cuda))
-#
-#     testloader = torch.utils.data.DataLoader(testset, batch_size=params.t_batch_size, shuffle=False, num_workers=params.t_num_workers, pin_memory=params.t_cuda)
-#
-#     return trainloader, testloader, DSI_list
 
 def fetch_noniid_dirichlet_dataloader(params):
     """
@@ -402,6 +315,9 @@ def fetch_noniid_dirichlet_dataloader(params):
     if params.t_dataset_type == 'cifar10':
         trainset = torchvision.datasets.CIFAR10(root=data_path, train=True, download=True, transform=train_transformer)
         testset = torchvision.datasets.CIFAR10(root=data_path, train=False, download=True, transform=test_transformer)
+    elif params.t_dataset_type == 'cifar100':
+        trainset = torchvision.datasets.CIFAR100(root=data_path, train=True, download=True, transform=train_transformer)
+        testset = torchvision.datasets.CIFAR100(root=data_path, train=False, download=True, transform=test_transformer)
     elif params.t_dataset_type == 'emnist':
         trainset = torchvision.datasets.EMNIST(root=data_path, train=True, download=True, transform=train_transformer)
         testset = torchvision.datasets.EMNIST(root=data_path, train=False, download=True, transform=test_transformer)

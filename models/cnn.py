@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 
 class CNN(nn.Module):
-    def __init__(self):
+    def __init__(self, params):
         super(CNN, self).__init__()
         self.convolution = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
@@ -22,29 +22,34 @@ class CNN(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(256, 10)
         )
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if params.t_init == 'xavier-normal':
+                    nn.init.xavier_normal_(m.weight)    # Xavier init
+                elif params.t_init == 'xavier-uniform':
+                    nn.init.xavier_uniform_(m.weight)   # Xavier init
+                elif params.t_init == 'he-normal':
+                    nn.init.kaiming_normal_(m.weight)  # He init
+                elif params.t_init == 'he-uniform':
+                    nn.init.kaiming_uniform_(m.weight)  # He init
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                if params.t_init == 'xavier-normal':
+                    nn.init.xavier_normal_(m.weight)  # Xavier init
+                elif params.t_init == 'xavier-uniform':
+                    nn.init.xavier_uniform_(m.weight)  # Xavier init
+                elif params.t_init == 'he-normal':
+                    nn.init.kaiming_normal_(m.weight)  # He init
+                elif params.t_init == 'he-uniform':
+                    nn.init.kaiming_uniform_(m.weight)  # He init
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         x = self.convolution(x)
         x = x.view(-1, 256 * 4 * 4)
         x = self.classifier(x)
         return x
-
-# class CNN(nn.Module):
-#     def __init__(self):
-#         super(CNN, self).__init__()
-#         self.conv1 = nn.Conv2d(3, 6, 5)
-#         self.pool = nn.MaxPool2d(2, 2)
-#         self.conv2 = nn.Conv2d(6, 16, 5)
-#         self.fc1 = nn.Linear(16 * 5 * 5, 120)
-#         self.fc2 = nn.Linear(120, 84)
-#         self.fc3 = nn.Linear(84, 10)
-#
-#
-#     def forward(self, x):
-#         x = self.pool(F.relu(self.conv1(x)))
-#         x = self.pool(F.relu(self.conv2(x)))
-#         x = x.view(-1, 16 * 5 * 5)
-#         x = F.relu(self.fc1(x))
-#         x = F.relu(self.fc2(x))
-#         x = self.fc3(x)
-#         return F.log_softmax(x, dim=1)

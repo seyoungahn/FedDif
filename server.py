@@ -14,8 +14,10 @@ import os
 from math import *
 import numpy as np
 from methods.FedAvg import *
+from munkres import Munkres, DISALLOWED, print_matrix
 
-## TODO: 수형 추가 (branch-and-bound를 위한 class)
+# import hungarian
+
 class Vertex:
     def __init__(self, level, weight, profit, bound, include):
         self.level = level
@@ -34,16 +36,18 @@ class Server(Node):
         self.model_dir = model_dir
         self.save_dir = save_dir
         self.params = params
-        self.tx_power = 43           # BS tx power 표준에서 구해야 함 in dBm scale
-        self.testloader = None     # TODO: SY
-        self.global_model = None    # TODO: SY
+        self.tx_power = 43           # BS tx power in dBm scale
+        self.testloader = None
+        self.global_model = None
         self.idx = []
         self.models = []
         self.curr_policy = []
         self.PUE_list = []
-        self.s_global_model = self.params.s_model_size      # bit
+        self.CUE_list = []
+        self.s_global_model = self.params.s_model_size # bit
         self.n_model = ceil(self.params.n_users * self.params.r_model)
-        self.mat_visited = [[False for _ in range(self.params.n_users)] for _ in range(self.n_model)]  ## TODO: 수형 추가함
+        self.mat_visited = [[False for _ in range(self.params.n_users)] for _ in range(self.n_model)]
+        self.hungarian = Munkres()
 
     @staticmethod
     def poisson_process(lam, scale, max_val):
@@ -72,6 +76,9 @@ class Server(Node):
     def append_PUE(self, user):
         self.PUE_list.append(user)
 
+    def append_CUE(self, user):
+        self.CUE_list.append(user)
+
     def get_data_size(self):
         data_size = np.zeros(len(self.models))
         for i in range(len(self.models)):
@@ -80,11 +87,11 @@ class Server(Node):
 
     def init_FL_task(self, device):
         ### Select the model
-        if self.params.t_model_version == 'resnet18':
-            self.global_model = resnet.ResNet18().to(device) if self.params.t_cuda else resnet.ResNet18()
+        if self.params.t_model_version == 'resnet34':
+            self.global_model = resnet.ResNet34().to(device) if self.params.t_cuda else resnet.ResNet34()
             for i in range(self.n_model):
                 model = Model(i, self.params)
-                model.ML_model = resnet.ResNet18().to(device) if self.params.t_cuda else resnet.ResNet18()
+                model.ML_model = resnet.ResNet34().to(device) if self.params.t_cuda else resnet.ResNet34()
                 model.local_configuration()
                 self.models.append(model)
         elif self.params.t_model_version == 'alexnet':
@@ -95,17 +102,17 @@ class Server(Node):
                 model.local_configuration()
                 self.models.append(model)
         elif self.params.t_model_version == 'cnn':
-            self.global_model = cnn.CNN().to(device) if self.params.t_cuda else cnn.CNN()
+            self.global_model = cnn.CNN(self.params).to(device) if self.params.t_cuda else cnn.CNN(self.params)
             for i in range(self.n_model):
                 model = Model(i, self.params)
-                model.ML_model = cnn.CNN().to(device) if self.params.t_cuda else cnn.CNN()
+                model.ML_model = cnn.CNN(self.params).to(device) if self.params.t_cuda else cnn.CNN(self.params)
                 model.local_configuration()
                 self.models.append(model)
         elif self.params.t_model_version == 'lstm':
-            self.global_model = lstm.LSTM().to(device) if self.params.t_cuda else lstm.LSTM()
+            self.global_model = lstm.LSTM(self.params).to(device) if self.params.t_cuda else lstm.LSTM(self.params)
             for i in range(self.n_model):
                 model = Model(i, self.params)
-                model.ML_model = lstm.LSTM().to(device) if self.params.t_cuda else lstm.LSTM()
+                model.ML_model = lstm.LSTM(self.params).to(device) if self.params.t_cuda else lstm.LSTM(self.params)
                 model.local_configuration()
                 self.models.append(model)
         elif self.params.t_model_version == 'fcn':
@@ -113,6 +120,20 @@ class Server(Node):
             for i in range(self.n_model):
                 model = Model(i, self.params)
                 model.ML_model = fcn.FCN().to(device) if self.params.t_cuda else fcn.FCN()
+                model.local_configuration()
+                self.models.append(model)
+        elif self.params.t_model_version == 'svm':
+            self.global_model = svm.SVM().to(device) if self.params.t_cuda else svm.SVM()
+            for i in range(self.n_model):
+                model = Model(i, self.params)
+                model.ML_model = svm.SVM().to(device) if self.params.t_cuda else svm.SVM()
+                model.local_configuration()
+                self.models.append(model)
+        elif self.params.t_model_version == 'logistic':
+            self.global_model = logistic.Logistic().to(device) if self.params.t_cuda else logistic.Logistic()
+            for i in range(self.n_model):
+                model = Model(i, self.params)
+                model.ML_model = logistic.Logistic().to(device) if self.params.t_cuda else logistic.Logistic()
                 model.local_configuration()
                 self.models.append(model)
 
@@ -124,7 +145,7 @@ class Server(Node):
     def global_init(self, save_dir):
         self.idx = list(range(0, self.params.n_users))
         random.shuffle(self.idx)
-        self.mat_visited = [[False for _ in range(self.params.n_users)] for _ in range(self.n_model)]  ## TODO: 수형 추가함
+        self.mat_visited = [[False for _ in range(self.params.n_users)] for _ in range(self.n_model)]
         self.curr_policy = [True for _ in range(self.n_model)]
         # 1. Model initialization
         for model in self.models:
@@ -138,160 +159,130 @@ class Server(Node):
             self.models[i].prev_DoL = self.PUE_list[self.idx[i]].DSI
             self.models[i].diffusion_subchain.append(self.idx[i])
             self.models[i].subchain_datasize = len(self.PUE_list[self.idx[i]].trainloader.dataset)
-            self.visit(self.models[i].id, self.idx[i])  ## TODO: 수형 추가함 (diffusion chain 방문 현황 기록)
+            self.visit(self.models[i].id, self.idx[i])
 
-    ## TODO: 수형 추가함 (subchain 방문 기록용)
     def visit(self, model_id, PUE_id):
         self.mat_visited[model_id][PUE_id] = True
 
-    ## TODO: 수형 추가함 (diffusion & resource allocation)
-    def scheduling(self, cond, mat_value, mat_weight):
+    def calc_num_sub_frames_from_BS_to_UE(self):
+        for i in range(self.params.n_users):
+            PUE = self.PUE_list[i]
+            PUE.data_sending_reset()
+
+        num_RBs = 0
+        num_sub_frames = 0
+        while True:
+            num_sub_frames += 1
+
+            num_PUE_RB = self.poisson_process(1200, 1, 1484)
+            # print(num_CUE_RB, num_CUE_RB * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * 0.5)
+            list_PUE_dist = [random.random() + 0.2 for _ in range(self.params.n_cusers + self.params.n_users)]
+
+            flag = True
+            for i in range(self.params.n_users):
+                PUE = self.PUE_list[i]
+                num_PUE_RB_local = ceil(num_PUE_RB * list_PUE_dist[i] / sum(list_PUE_dist))
+
+                datarate = 0.001 * utils.datarate(self.params, self, PUE, num_PUE_RB_local)
+                if PUE.data_for_sending < datarate:
+                    PUE.data_for_sending = 0
+                    num_RBs += ceil(PUE.data_for_sending / (self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * utils.spectral_efficiency_user(self.params, PUE, self, 0)))
+                else:
+                    PUE.data_for_sending -= datarate
+                    num_RBs += num_PUE_RB_local
+                    flag = False
+
+            if flag is True:
+                break
+        return num_RBs, num_sub_frames
+
+    def calc_num_sub_frames_from_UE_to_BS(self):
+        for i in range(self.params.n_users):
+            PUE = self.PUE_list[i]
+            PUE.data_sending_reset()
+
+        num_sub_frames = 0
+        num_RBs = 0
+        while True:
+            num_sub_frames += 1
+
+            num_PUE_RB = self.poisson_process(1200, 1, 1484)
+            # print(num_CUE_RB, num_CUE_RB * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * 0.5)
+            list_PUE_dist = [random.random() + 0.2 for _ in range(self.params.n_cusers + self.params.n_users)]
+            flag = True
+            for i in range(self.params.n_users):
+                PUE = self.PUE_list[i]
+                num_PUE_RB_local = ceil(num_PUE_RB * list_PUE_dist[i] / sum(list_PUE_dist))
+
+                datarate = 0.001 * utils.datarate(self.params, PUE, self, num_PUE_RB_local)
+                if PUE.data_for_sending < datarate:
+                    PUE.data_for_sending = 0
+                    num_RBs += ceil(PUE.data_for_sending / (self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * utils.spectral_efficiency_user(self.params, PUE, self, 0)))
+                else:
+                    PUE.data_for_sending -= datarate
+                    num_RBs += num_PUE_RB_local
+                    flag = False
+
+            if flag is True:
+                break
+        return num_RBs, num_sub_frames
+
+    def scheduling(self, cond, mat_value, mat_num_bits, mat_num_RBs):
+        # print("S1")
         policy = [-1 for _ in range(self.params.n_users)]
 
-        scheduled_model = [False for _ in range(self.n_model)]
-        scheduled_PUE = [False for _ in range(self.params.n_users)]
-
-        list_val = []
+        profit_matrix = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]
         for i in range(self.n_model):
             for j in range(self.params.n_users):
-                frac = 0
-                if mat_value[i][j] > 0 and mat_weight[i][j] > 0:
-                    frac = mat_value[i][j] / mat_weight[i][j]
-                # (model idx, PUE idx, value, weight, frac)
-                list_val.append((i, j, mat_value[i][j], mat_weight[i][j], frac))
-        list_val.sort(key=lambda x: x[4], reverse=True)
-
-        for val in list_val:
-            idx_model, idx_PUE, val_value, val_weight, val_frac = val
-            if scheduled_model[idx_model] is True or scheduled_PUE[idx_PUE] is True:
-                continue
-            policy[idx_model] = idx_PUE
-            scheduled_model[idx_model] = True
-            scheduled_PUE[idx_PUE] = True
-
-        list_sort = []
-        for i in range(self.n_model):
-            frac = 0
-            if mat_value[i][policy[i]] > 0 and mat_weight[i][policy[i]] > 0:
-                frac = mat_value[i][policy[i]] / mat_weight[i][policy[i]]
-            # (model idx, value, weight, frac)
-            list_sort.append((i, mat_value[i][policy[i]], mat_weight[i][policy[i]], frac))
-        list_sort.sort(key=lambda x: x[3], reverse=True)
-
-        def calc_bound(node):
-            if node.weight >= max_capacity:
-                return False
-            idx = node.level + 1
-            bound = node.profit
-            totweight = node.weight
-            while idx < self.n_model and totweight + list_sort[idx][2] <= max_capacity:
-                totweight += list_sort[idx][2]
-                bound += list_sort[idx][1]
-                idx += 1
-            last = idx
-            if last < self.n_model:
-                bound += (max_capacity - totweight) * (list_sort[last][1] / list_sort[last][2])
-            return bound
-
-        scheduled_model = [False for _ in range(self.n_model)]
-        scheduled_RB = []
-
-        num_scheduled_model = 0
-        idx_auction = 0
-        while num_scheduled_model < cond:
-            idx_auction += 1
-            pq = queue.PriorityQueue()
-            max_capacity = self.params.s_n_RB * self.params.s_n_timeslot
-            for _ in range(self.params.s_n_timeslot):
-                max_capacity -= self.poisson_process(25, 1, 50)  # TODO: auction 마다 num_RB random으로 바뀌어야 함
-                                                                   # 평균, 도착수, 최댓값 # poisson process를 통해 도착한 CUE들은 평균 25개의 RB를 사용함.
-            max_profit = 0
-            knapsack_result = None
-            temp = [False for _ in range(self.n_model)]
-
-            level = 0
-            while level < self.n_model:
-                if scheduled_model[list_sort[level][0]] is True:
-                    level += 1
+                if (mat_value[i][j] < 0) or (mat_num_bits[i][j] < 0):
+                    profit_matrix[i][j] = 0
                 else:
-                    break
-            v = Vertex(-1, level, 0, 0.0, temp)
-            v.bound = calc_bound(v)
-            pq.put((-v.bound, v))
+                    profit_matrix[i][j] = -ceil(mat_value[i][j] / mat_num_bits[i][j] * 8e13)
+        results = self.hungarian.compute(profit_matrix)
+        # print_matrix(profit_matrix)
 
-            while not pq.empty():
-                v = pq.get()[1]
-                if v.bound > max_profit:
-                    level = v.level + 1
-                    while level < self.n_model:
-                        if scheduled_model[list_sort[level][0]] is True:
-                            level += 1
-                        else:
-                            break
-                    if level == self.n_model:
-                        break
-                    weight = v.weight + list_sort[level][2]
-                    profit = v.profit + list_sort[level][1]
-                    include = v.include[:]
-                    u = Vertex(level, weight, profit, 0.0, include)
-                    u.include[list_sort[level][0]] = True
-                    if u.weight <= max_capacity and u.profit > max_profit:
-                        max_profit = u.profit
-                        knapsack_result = u.include
-                    u.bound = calc_bound(u)
-                    if u.bound > max_profit:
-                        pq.put((-u.bound, u))
+        if results is False:
+            return policy, 0, 0
 
-                    u = Vertex(level, v.weight, v.profit, 0.0, v.include)
-                    u.bound = calc_bound(u)
-                    if u.bound > max_profit:
-                        pq.put((-u.bound, u))
+        sum_RBs = 0
+        for (model_idx, PUE_idx) in results:
+            if profit_matrix[model_idx][PUE_idx] == 0:
+                continue
 
-            # TODO: 이게 진짜 맞는가?
-            # -> knapsack_result is None 이라는 뜻은 얻을 수 있는 profit이 전부 음수라는 뜻임
-            # -> 만약 rho * self.n_model 보다 적게 할당되었다고 하더라도 멈추는게 맞음 (?)
-            if knapsack_result is None:
-                break
+            from_PUE = self.PUE_list[self.models[model_idx].curr_trainer]
+            to_PUE = self.PUE_list[PUE_idx]
 
-            # Resource allocation
-            resource_allocation = [-1 for _ in range(self.params.n_users)]
-            for idx in range(self.n_model):
-                if knapsack_result[idx] is True:
-                    resource_allocation[self.models[idx].curr_trainer] = mat_weight[idx][policy[idx]]
-            scheduled_RB.append(resource_allocation)
+            datarate = utils.spectral_efficiency_user(self.params, from_PUE, to_PUE, 0)
+            SNR_dB = utils.SNR_user(self.params, from_PUE, to_PUE, 0)
+            SNR = 10.**(SNR_dB / 10.)
 
-            for idx in range(self.n_model):
-                if knapsack_result[idx] is True:
-                    scheduled_model[idx] = True
-                    num_scheduled_model += 1
+            # utils.write_csv(self.save_dir, "test", [datarate], ["spectral efficiency"])
+            # print(datarate, math.log2(1 - SNR * math.log(0.95)), SNR)
 
-        for idx in range(self.n_model):
-            if scheduled_model[idx] is False:
-                policy[idx] = -1
+            outage = datarate - math.log2(1 - SNR * math.log(0.95))
+            # outage = 1 - math.exp(-(2**(datarate) - 1) / SNR)
+            if outage < 0:
+                continue
 
-        return policy, idx_auction, scheduled_RB
+            if mat_value[model_idx][PUE_idx] < self.params.bar_delta:
+                continue
+
+            if datarate < self.params.s_QoS_th:
+                continue
+
+            policy[model_idx] = PUE_idx
+            sum_RBs += mat_num_RBs[model_idx][PUE_idx]
+
+        num_sub_frames = 0
+        transmitted_RBs = 0
+        while transmitted_RBs < sum_RBs:
+            num_sub_frames += 1
+            transmitted_RBs += self.poisson_process(1200, 1, 1484)
+
+        return policy, sum_RBs, num_sub_frames
 
     def diffusion(self):
-        # # [Step 2-1] DoL broadcasting
-        # prelim_DoL_list = []
-        # for model in self.models:
-        #     prelim_DoL_list.append(model.DoL_broadcasting(self.PUE_list))
-        # # [Step 2-2] Preliminary IID distance reporting
-        # IID = np.array([1.0 / self.params.t_class_num for _ in range(self.params.t_class_num)])
-        # prelim_IID_dist_list = []
-        # for model in prelim_DoL_list:
-        #     prelim_IID_dist = []
-        #     for prelim_DoL in model:
-        #         prelim_IID_dist.append(np.linalg.norm(prelim_DoL - IID))
-        #     prelim_IID_dist_list.append(prelim_IID_dist)
         self.curr_policy = [False for _ in range(self.n_model)]
-        ## TODO: 여기서부터 제가 작성한 코드
-        ## 제 생각에는 DoL broadcasting을 실제로 구현할 필요는 없을 것 같습니다.
-        ## 각 PUE는 model의 curr_trainer가 내 neighbor라면 broadcasting 되었다고 생각하고 prelim_DoL을 계산합니다.
-        ## prelim_DoL은 model.calc_DoL(PUE)로 함수를 만들었습니다.
-        ## 기존 prelim_IID_dist_list -> bidding_price 로 바뀌었습니다.
-        ## bidding_price = [[UE1->model1에 대한 value, UE1->model2에 대한 value, ...,  UE1->modelN에 대한 value], [UE2], ... [마지막 UE]]
-        # TODO: neighbors에 PUE들을 넣는 작업 필요
         
         # [Step 2-1 and 2-2] bidding price calculation
         IID = np.array([1.0 / self.params.t_class_num for _ in range(self.params.t_class_num)])
@@ -302,43 +293,41 @@ class Server(Node):
                 if model.curr_trainer in user.neighbors:
                     # prelim_DoL = model.calc_DoL(user, self.PUE_list)
                     prelim_DoL = model.get_next_DoL(user.DSI, len(user.trainloader.dataset))
-                    valuation = np.linalg.norm(prelim_DoL - IID, ord=2)
+                    # valuation = np.linalg.norm(prelim_DoL - IID, ord=2)
+                    valuation = utils.prob_dist(prelim_DoL, IID, self.params.t_dist)
                     price_list[model.id] = valuation
             bidding_price.append(price_list)
 
         # [Step 2-3] Diffusion configuration
-        ## TODO: Auction기반 scheduling
         value = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]  # N_model X N_PUE
-        weight = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]  # N_model X N_PUE
+        num_bits = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]  # N_model X N_PUE
+        n_RBs = [[0 for _ in range(self.params.n_users)] for _ in range(self.n_model)]  # N_model X N_PUE
         for model in self.models:
             model.diffusion_round += 1
+            from_user = self.PUE_list[model.curr_trainer]
             for user in self.PUE_list:
+                user.data_sending_reset()
                 if model.curr_trainer == user.id or self.mat_visited[model.id][user.id] is True:
                     value[model.id][user.id] = -math.inf
-                    weight[model.id][user.id] = math.inf
+                    num_bits[model.id][user.id] = -math.inf
                 else:
-                    prev_IID_dist = np.linalg.norm(np.array(model.prev_DoL) - IID, ord=2)
+                    # prev_IID_dist = np.linalg.norm(np.array(model.prev_DoL) - IID, ord=2)
+                    prev_IID_dist = utils.prob_dist(np.array(model.prev_DoL), IID, self.params.t_dist)
                     value[model.id][user.id] = prev_IID_dist - bidding_price[user.id][model.id]
-                    weight[model.id][user.id] = self.PUE_list[model.curr_trainer].calc_num_RB(user)
-        # 0-1 knapsack algorithm and resource allocation
-        policy_model, num_auction, policy_RB = self.scheduling(self.params.rho * self.params.n_users, value, weight)
+                    n_RBs[model.id][user.id] = ceil(self.params.s_model_size / (self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * utils.spectral_efficiency_user(self.params, from_user, user, 0)))
+                    # print("n_min", n_min)
+                    num_bits[model.id][user.id] = self.params.s_timeslot * self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB * n_RBs[model.id][user.id]
+                    # print("num_bits", num_bits[model.id][user.id])
+                    # print("SE", utils.spectral_efficiency_user(self.params, from_user, user, 0))
+                    # print("SNR_dB", utils.SNR_user(self.params, from_user, user, 0))
 
+        policy_model, num_RBs, num_sub_frames = self.scheduling(self.params.rho * self.params.n_users, value, num_bits, n_RBs)
         for i in range(self.n_model):
             if policy_model[i] >= 0:
                 self.curr_policy[i] = True
             else:
                 self.curr_policy[i] = False
-        ## TODO: 결과 설명
-        ## policy_model = [idx1, idx2, ..., idx_n_model]
-        ##    -> 각 모델이 다음에 어떤 PUE를 선택할지에 대한 idx를 반환함
-        ##    -> idx가 -1일 수 있음: rho * n_users 이상 만큼 할당했을 때 할당받지 못한 model의 경우 -1로 표시함
-        ##    -> rho는 params.rho = 0.8 로 정의했음
-        ## num_auction = auction을 진행한 횟수
-        ## policy_RB = [[num_RB1, num_RB2, ..., num_RB_n_users], [...], ...]
-        ##    -> 안쪽 []: 매 auction 마다 각 PUE가 model을 보낼 때 필요한 RB 수를 반환함 (할당 X인경우 0)
-        ##    -> []의 수 = num_auction 수
 
-        ## TODO: 수형 추가함 (diffusion stop condition) diffusion efficiency update
         DE = 0
         num_scheduled_model = 0
         IID_dist = []
@@ -347,37 +336,21 @@ class Server(Node):
                 IID_dist.append(-1)
             else:
                 num_scheduled_model += 1
-                DE += value[i][policy_model[i]] / weight[i][policy_model[i]]
+                DE += value[i][policy_model[i]] / num_bits[i][policy_model[i]] * 8e6
                 IID_dist.append(bidding_price[policy_model[i]][i])
         if num_scheduled_model > 0:
-            DE /= num_scheduled_model
+            DE /= self.params.n_users * self.params.rho
+        else:
+            return None, None, None, None
 
-        # diffusion stop condition (전체를 다 계산해봐야 하기 때문에 auction 전이 아니라 여기서 확인해야 함(구현의 편의를 위해))
-        # model transmission 전에 수행해야 함
-        ## TODO: stop condition이 이게 맞는가?
-        # -> 구현해보니까 DE가 별로 변하지 않는다고 하더라도 epsilon 달성할 때까지 계속 수행해야 함
-        # -> 차라리 average IID distance가 특정 값 아래로 내려갈 때까지 달성하는게 낫지 않나?
         logging.info("Diffusion efficiency: {}".format(DE))
-        if DE <= self.params.epsilon:
-            # break         # TODO: 반복문으로 할거면 break
-            return None, None  # TODO: FedDif diffusion 별로 수행할거면 여기서 return
+        if DE <= 0:
+            return None, None, None, None
 
         # [Step 2-4] Model transmission
-        ## TODO: 수형 요구사항
-        ## policy 대로 transmission을 수행할 때 다음의 것들을 해주셔야 합니다.
-        ## 1. self.visit(model.id, user.id)
-        ##   -> 각 model별로 방문한 user들에 대한 subchain 방문 여부를 업데이트 해야 합니다. (value, weight 계산에 쓰임)
         for i in range(self.n_model):
             if policy_model[i] != -1:
                 self.visit(i, policy_model[i])
-        ## 2. 각 user별 model 세팅
-        ##   -> 이 때 tranmission 하고 받지 않은 놈은 local_model이 None이어야 합니다. : TODO: 왜 user별 model이 세팅되어야 하는거지?
-        # for i in range(self.n_model):
-        #     if policy_model[i] == -1:
-        #         self.PUE_list[policy_model[i]]
-        ## 3. 각 model별 업데이트
-        ##   -> model 별로 prev_DoL, subchain, DSI 반영한 DoL 업데이트
-        ##   -> model 별로 curr_trainer, prev_trainer 업데이트
         for i in range(self.n_model):
             self.models[i].diffusion_subchain.append(policy_model[i])
             if policy_model[i] < 0:
@@ -388,8 +361,34 @@ class Server(Node):
             self.models[i].prev_DoL = self.models[i].curr_DoL
             self.models[i].curr_DoL = next_DoL
             self.models[i].subchain_datasize += len(self.PUE_list[policy_model[i]].trainloader.dataset)
+        return IID_dist, DE, num_RBs, num_sub_frames
 
-        return IID_dist, DE
+    def create_coordination(self):
+        angle = random.random() * math.pi * 2
+        radius = random.uniform(0.1, 1) * self.params.s_r_cell
+        x = radius * math.cos(angle)
+        y = radius * math.sin(angle)
+        return x, y
+
+    def shuffle(self):
+        for pue in self.PUE_list:
+            temp_x, temp_y = self.create_coordination()
+            pue.set_coordination(temp_x, temp_y)
+        for cue in self.CUE_list:
+            temp_x, temp_y = self.create_coordination()
+            cue.set_coordination(temp_x, temp_y)
+
+    def init_grad(self):
+        for i in range(self.n_model):
+            self.models[i].optimizer.zero_grad()
+
+    def global_step(self):
+        for i in range(self.n_model):
+            self.models[i].optimizer.step()
+
+    def global_train_mode(self):
+        for i in range(self.n_model):
+            self.models[i].ML_model.train()
 
     def random_diffusion(self):
         random.shuffle(self.idx)

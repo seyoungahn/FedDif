@@ -5,6 +5,7 @@ import shutil
 import torch
 import errno
 import csv
+import math
 
 # import tensorflow as tf
 import numpy as np
@@ -224,6 +225,16 @@ metrics = {
 def DoL_operation(p, datasize_p, q, datasize_q):
     return (datasize_p * p + datasize_q * q) / (datasize_p + datasize_q)
 
+def prob_dist(p, q, type='l2'):
+    if type == 'l2':
+        return np.linalg.norm(p - q, ord=2)
+    elif type == 'KLD':
+        return np.sum(np.where(p != 0.0, p * np.log(p / q), 0.0))
+    elif type == 'JSD':
+        return (1 / 2) * KL_divergence(p, (p + q) / 2) + (1 / 2) * KL_divergence(q, (p + q) / 2)
+    elif type == 'EMD':
+        return scipy.stats.wasserstein_distance(p, q)
+
 def KL_divergence(p, q):
     return np.sum(np.where(p != 0.0, p * np.log(p / q), 0.0))
 
@@ -238,3 +249,33 @@ def JSD(p, q):
 
 def Euclidean(x1, y1, x2, y2):
     return (x1 - x2) ** 2 + (y1 - y2) ** 2
+
+def dist_node(node1, node2):
+    return ((node1.x - node2.x)**2 + (node1.y - node2.y)**2 + 23.5**2)**0.5
+
+def SNR_user(params, tx, rx, num_RBs, interference=False):
+    pathloss_db = params.s_beta_zero - 10.0 * params.s_kappa * math.log10(dist_node(tx, rx))
+    SNR_dB = tx.tx_power + pathloss_db - params.s_noise
+    return SNR_dB
+
+def SINR_user(params, tx, rx, inter_tx, num_RBs):
+    pathloss = params.s_beta_zero - 10.0 * params.s_kappa * math.log10(dist_node(tx, rx))
+    noise = params.s_noise_power
+    if num_RBs > 0:
+        noise = params.s_noise_power + 10.0 * math.log10(params.s_subcarrier_bandwidth * params.s_n_subcarrier_RB * num_RBs)
+    inter_pathloss = params.s_beta_zero - 10.0 * params.s_kappa * math.log10(dist_node(inter_tx, rx))
+    INR_dB = 10.0 * math.log10(10.0 ** ((inter_tx.tx_power - inter_pathloss) / 10.0) + 10.0 ** (noise / 10.0))
+    SINR_dB = tx.tx_power + pathloss - INR_dB
+    return SINR_dB
+
+def spectral_efficiency_user(params, tx, rx, num_RBs, interference=False, inter_tx=None):
+    SINR_dB = SNR_user(params, tx, rx, num_RBs)
+    if interference is True:
+        SINR_dB = SINR_user(params, tx, rx, inter_tx, num_RBs)
+    SINR = 10.0**(SINR_dB / 10.0)
+    spectral_efficiency = math.log2(1.0 + SINR)
+    return spectral_efficiency
+
+def datarate(params, tx, rx, num_RBs, interference=False, inter_tx=None):
+    result = num_RBs * params.s_subcarrier_bandwidth * params.s_n_subcarrier_RB * spectral_efficiency_user(params, tx, rx, num_RBs, interference=interference, inter_tx=inter_tx)
+    return result
