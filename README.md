@@ -1,6 +1,6 @@
 ## Communication-Efficient Diffusion Strategy for Performance Improvement of Federated Learning with Non-IID Data
 
-## Official Implementation
+## Official Implementation of FedDif
 ![Overview](https://github.com/seyoungahn/JSAC_FedDif/blob/main/FedDif_overview.png "Overview of FedDif")
 
 Paper: https://arxiv.org/abs/2207.07493
@@ -41,6 +41,8 @@ Seyoung Ahn, Soohyeong Kim, Yongseok Kwon, Joohan Park, Jiseung Youn, and Sunghy
   2. `t_model_version` indicates the type of ML model. We consider six ML models such as Logistic regression, CNN, FCN, SVM, LSTM, and ResNet34. Please set `t_model_version` variable as `"logistic"`, `"cnn"`, `"fcn"`, `"svm"`, `"lstm"`, and `"resnet34"`, respectively.
   3. `t_dataset_type` indicates the type of dataset. We consider four datasets such as CIFAR10, MNIST, FMNIST, and CIFAR100. Please set `t_dataset_type` variable as `"cifar10"`, `"mnist"`, `"fmnist"`, and `"cifar100"`, respectively.
   4. `t_init` indicates the weight initialization schemes. We consider two initialization schemes such as ["He"](https://openaccess.thecvf.com/content_iccv_2015/html/He_Delving_Deep_into_ICCV_2015_paper.html) and ["Xavier"](http://proceedings.mlr.press/v9/glorot10a) initialization. Please set `t_init` parameter as `he-uniform`, `he-normal`, `xavier-uniform`, and `xavier-normal`.
+
+* Run ``main.py``
 
 ## Results
 * All results of experiments are recorded in `save/<experiment name>_record1.csv`, `_record2.csv`, and `_record3.csv`. The schema of each file is as follows:
