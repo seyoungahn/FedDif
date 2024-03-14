@@ -30,18 +30,19 @@ class Experiment:
         self.record1_name = self.exp_name + "_record1"
         self.record2_name = self.exp_name + "_record2"
         self.record3_name = self.exp_name + "_record3"
-        self.record1_fieldnames = ['comm_round', 'accuracy', 'loss', 'num_of_diff_rounds']
-        self.record2_fieldnames = ['comm_round', 'diff_round', 'diff_effi', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+        self.record1_fieldnames = ['comm_round', 'accuracy', 'loss', 'num_of_diff_rounds', 'cumulative_iterations']
+        # self.record2_fieldnames = ['comm_round', 'diff_round', 'diff_effi', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
         self.record3_fieldnames = ['comm_round', 'diff_round', 'RBs', 'sub-frame']
 
         self.device = params.t_gpu_no if torch.cuda.is_available() else 'cpu'
         print("DEVICE: {}".format(self.device))
 
-        """ Component initializations """
+        ## Component initializations
         self.server = Server(self.params, self.model_dir, self.save_dir)
+        self.server.exp_name = exp_name
         self.server.init_FL_task(self.device)
 
-        # Set self.trainloaders, self.testloaders, self.DSI
+        ## Set self.trainloaders, self.testloaders, self.DSI
         if self.params.t_stat_het == 'iid':
             self.set_iid_dataset()
         elif self.params.t_stat_het == 'noniid':
@@ -56,6 +57,8 @@ class Experiment:
             pue = PUE(i, x, y, self.params)
             pue.set_trainloader(self.trainloader[i])
             pue.set_DSI(self.DSI_list[i])
+            pue.parameter_drift = np.zeros(self.server.n_par)
+            pue.state_gradient_diff = np.zeros(self.server.n_par)
             self.server.append_PUE(pue)
 
         for i in range(self.params.n_cusers):
@@ -72,8 +75,8 @@ class Experiment:
                     continue
                 self.server.PUE_list[i].neighbors.append(j)
 
-    # Polar coordination
     def create_coordination(self):
+        ## Polar coordination
         angle = random.random() * math.pi * 2
         radius = random.uniform(0.1, 1) * self.params.s_r_cell
         x = radius * math.cos(angle)
@@ -146,16 +149,22 @@ class Experiment:
                     PUE_i.append_neighbor(PUE_j)
 
     def FedDif(self):
+        lr = self.params.t_learning_rate
+        cum_iters = 0
         for comm_round in range(self.params.t_num_rounds):
             logging.info("COMM ROUND: {}".format(comm_round + 1))
+
             for pue in self.server.PUE_list:
                 temp_x, temp_y = self.create_coordination()
                 pue.set_coordination(temp_x, temp_y)
-            self.server.global_init(self.save_dir)
-            lr = self.params.t_learning_rate
+
+            self.server.global_init()
+
             logging.info("Learning rate: {}".format(lr))
-            self.server.local_training(lr)
             diff_round = 0
+
+            self.server.local_training(lr, diff_round)
+            cum_iters += 1
 
             num_RBs, num_subframes = self.server.calc_num_sub_frames_from_BS_to_UE()
             record3_data = [comm_round + 1, 'b', num_RBs, num_subframes]
@@ -163,31 +172,65 @@ class Experiment:
 
             ### Diffusion start
             while True:
-                logging.info("COMM ROUND: {} | DIFF ROUND: {}".format(comm_round + 1, diff_round + 1))
                 IID_dist, DE, num_RBs, num_subframes = self.server.diffusion()
                 if IID_dist is None:
                     break
-                record2_data = [comm_round + 1, diff_round + 1, DE] + IID_dist
-                utils.write_csv(self.save_dir, self.record2_name, record2_data, self.record2_fieldnames)
+                logging.info("COMM ROUND: {} | DIFF ROUND: {}".format(comm_round + 1, diff_round + 1))
+                # record2_data = [comm_round + 1, diff_round + 1, DE] + IID_dist
+                # utils.write_csv(self.save_dir, self.record2_name, record2_data, self.record2_fieldnames)
                 record3_data = [comm_round + 1, diff_round + 1, num_RBs, num_subframes]
                 utils.write_csv(self.save_dir, self.record3_name, record3_data, self.record3_fieldnames)
                 diff_round += 1
-                lr = (self.params.t_learning_rate / 2.) * (1 + np.cos((diff_round * np.pi)/20.0))
+                # lr = (self.params.t_learning_rate / 2.) * (1 + np.cos((diff_round * np.pi)/20.0))
+                # lr_diffusion = lr * (self.params.t_lr_decay ** diff_round)
+                # lr_diffusion = lr
+                # lr = lr * self.params.t_lr_decay
                 logging.info("Learning rate: {}".format(lr))
-                self.server.local_training(lr)
+                self.server.local_training(lr, diff_round)
+                cum_iters += 1
                 self.server.shuffle()
 
-            ### global aggregation
-            print("GLOBAL AGGREGATION: ", end='')
-            self.server.global_aggregation()
-            global_acc, global_loss = self.server.evaluate()
-            record1_data = [comm_round + 1, global_acc, global_loss, diff_round]
+            # n_batch = np.ceil(500 / self.params.t_batch_size) * self.params.t_local_epochs * (diff_round+1)
+
+            ## global aggregation
+            # print("========== GLOBAL AGGREGATION ==========")
+            # self.server.global_aggregation()
+            # global_acc, global_loss = self.server.evaluate()
+            # record1_data = [comm_round + 1, global_acc, global_loss, diff_round]
+            # utils.write_csv(self.save_dir, self.record1_name, record1_data, self.record1_fieldnames)
+            # logging.info("\n\t+ GLOBAL Testing Accuracy: %.4f, Loss: %.4f\n" % (global_acc, global_loss))
+
+            # print("{} / {}".format(self.params.n_users, self.server.n_model * (diff_round + 1)))
+
+            denom = self.params.n_users
+            # denom = self.server.n_model * (diff_round + 1)
+            # denom = self.params.n_users * (diff_round + 1)
+
+            global_delta_curr = 1 / denom * self.server.global_delta_sum
+            self.server.state_gradient_diff += global_delta_curr
+
+            parameter_drifts = []
+            for pue in self.server.PUE_list:
+                parameter_drifts.append(pue.parameter_drift)
+            parameter_drifts = np.array(parameter_drifts)
+
+            logging.info("============ GLOBAL AGGREGATION ============")
+            self.server.global_aggregation(parameter_drifts)
+            global_loss, global_acc = utils.get_acc_loss(self.server.testloader, self.server.global_model, self.params)
+            record1_data = [comm_round + 1, global_acc, global_loss, diff_round, cum_iters]
             utils.write_csv(self.save_dir, self.record1_name, record1_data, self.record1_fieldnames)
-            logging.info("LEARNING PERFORMANCE - acc: {}, loss: {}".format(global_acc, global_loss))
+            logging.info("\n\t+ %03d COMM RND GLOBAL Testing Accuracy: %.4f, Loss: %.4f\n" % (comm_round+1, global_acc, global_loss))
+
+            lr = lr * self.params.t_lr_decay
+
+            # self.server.global_model = utils.set_client_from_params(self.server.global_model, utils.get_mdl_params([self.server.global_model])[0] + np.mean(parameter_drifts), self.params.t_gpu_no)
 
             num_RBs, num_subframes = self.server.calc_num_sub_frames_from_UE_to_BS()
             record3_data = [comm_round + 1, 'a', num_RBs, num_subframes]
             utils.write_csv(self.save_dir, self.record3_name, record3_data, self.record3_fieldnames)
+
+    def FedAvg(self):
+        pass
 
     def FedDif_weight_difference(self):
         ## Set IID dataset
@@ -225,7 +268,7 @@ class Experiment:
             for pue in self.server.PUE_list:
                 temp_x, temp_y = self.create_coordination()
                 pue.set_coordination(temp_x, temp_y)
-            self.server.global_init(self.save_dir)
+            self.server.global_init()
             lr = self.params.t_learning_rate
             logging.info("Learning rate: {}".format(lr))
             ## FedDif

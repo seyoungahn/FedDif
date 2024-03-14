@@ -6,6 +6,7 @@ import torch
 import errno
 import csv
 import math
+import copy
 
 # import tensorflow as tf
 import numpy as np
@@ -111,10 +112,10 @@ def save_local_checkpoint(state, checkpoint, party_idx):
     """
     filepath = os.path.join(checkpoint, 'party_' + str(party_idx) + '_last.pth.tar')
     if not os.path.exists(checkpoint):
-        print("Checkpoint directory does not exist: making directory {}".format(checkpoint))
+        # print("Checkpoint directory does not exist: making directory {}".format(checkpoint))
         os.mkdir(checkpoint)
-    else:
-        print("Checkpoint directory exists.")
+    # else:
+    #     print("Checkpoint directory exists.")
     torch.save(state, filepath)
     # if is_best:
     #     shutil.copyfile(filepath, os.path.join(checkpoint, 'party_' + str(party_idx) + '_best.pth.tar'))
@@ -131,8 +132,8 @@ def save_checkpoint(state, is_best, checkpoint):
     if not os.path.exists(checkpoint):
         print("Checkpoint directory does not exist: making directory {}".format(checkpoint))
         os.mkdir(checkpoint)
-    else:
-        print("Checkpoint directory exists.")
+    # else:
+    #     print("Checkpoint directory exists.")
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'best.pth.tar'))
@@ -169,7 +170,7 @@ def loss_function(outputs, labels):
     Note: you may use a standard loss function from http://pytorch.org/docs/master/nn.html#loss-functions.
           This example demonstrates how you can easily define a custom loss function
     """
-    return nn.CrossEntropyLoss()(outputs, labels)
+    return nn.CrossEntropyLoss(reduction='sum')(outputs, labels)
 
 def loss_function_kd(outputs, labels, teacher_outputs, params):
     """
@@ -279,3 +280,84 @@ def spectral_efficiency_user(params, tx, rx, num_RBs, interference=False, inter_
 def datarate(params, tx, rx, num_RBs, interference=False, inter_tx=None):
     result = num_RBs * params.s_subcarrier_bandwidth * params.s_n_subcarrier_RB * spectral_efficiency_user(params, tx, rx, num_RBs, interference=interference, inter_tx=inter_tx)
     return result
+
+
+def get_mdl_params(model_list, n_par=None):
+    if n_par == None:
+        exp_mdl = model_list[0]
+        n_par = 0
+        for name, param in exp_mdl.named_parameters():
+            n_par += len(param.data.reshape(-1))
+
+    param_mat = np.zeros((len(model_list), n_par)).astype('float32')
+    for i, mdl in enumerate(model_list):
+        idx = 0
+        for name, param in mdl.named_parameters():
+            temp = param.data.cpu().numpy().reshape(-1)
+            param_mat[i, idx:idx + len(temp)] = temp
+            idx += len(temp)
+    return np.copy(param_mat)
+
+def get_mdl_tensors(model):
+    params = None
+    for param in model.parameters():
+        if not isinstance(params, torch.Tensor):
+            # Initially nothing to concatenate
+            params = param.reshape(-1)
+        else:
+            params = torch.cat((params, param.reshape(-1)), 0)
+    return params
+
+
+def get_acc_loss(dataloader, model, params):
+    acc_overall = 0
+    loss_overall = 0
+    criterion = torch.nn.CrossEntropyLoss(reduction='sum')
+
+    model.eval()
+    model = model.to(params.t_gpu_no)
+
+    n_samples = len(dataloader.dataset)
+    n_batchs = len(dataloader)
+    with torch.no_grad():
+        data_iter = dataloader.__iter__()
+        for i in range(n_batchs):
+            batch_x, batch_y = data_iter.__next__()
+            batch_x = batch_x.to(params.t_gpu_no)
+            batch_y = batch_y.to(params.t_gpu_no)
+            y_pred = model(batch_x)
+
+            # Loss calculation
+            loss = criterion(y_pred, batch_y.reshape(-1).long())
+            loss_overall += loss.item()
+
+            # Accuracy calculation
+            y_pred = y_pred.cpu().numpy()
+            y_pred = np.argmax(y_pred, axis=1).reshape(-1)
+            batch_y = batch_y.cpu().numpy().reshape(-1).astype(np.int32)
+            batch_correct = np.sum(y_pred == batch_y)
+            acc_overall += batch_correct
+
+    loss_overall /= n_samples
+    acc_overall /= n_samples
+    # if params.t_weight_decay != None:
+    #     Add L2 loss
+        # model_params = get_mdl_params([model])
+        # loss_overall += params.t_weight_decay / 2 * np.sum(model_params * model_params)
+
+    model.train()
+    return loss_overall, acc_overall
+
+
+def set_client_from_params(mdl, params, device):
+    dict_param = copy.deepcopy(dict(mdl.named_parameters()))
+    # dict_param = copy.deepcopy(dict(mdl.state_dict()))
+    idx = 0
+
+    for name, param in mdl.named_parameters():
+        weights = param.data
+        length = len(weights.reshape(-1))
+        dict_param[name].data.copy_(torch.tensor(params[idx:idx + length].reshape(weights.shape)).to(device))
+        idx += length
+    mdl.load_state_dict(dict_param)
+    return mdl

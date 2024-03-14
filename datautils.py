@@ -269,75 +269,92 @@ def fetch_noniid_dirichlet_dataloader(params):
         :param params:
         :return:
         """
-    if params.t_augmentation == "yes" and params.t_dataset_type == "cifar10":
-        train_transformer = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-        ])
-        test_transformer = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-        ])
-    elif params.t_augmentation == "yes" and params.t_dataset_type == "fmnist":
-        train_transformer = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
-        ])
-        test_transformer = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,))
-        ])
-    elif params.t_augmentation == "yes" and params.t_dataset_type == "mnist":
-        train_transformer = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-            transforms.Normalize((0.06078,), (0.1957,))
-        ])
-        test_transformer = transforms.Compose([
-            transforms.Resize((32, 32)),
-            transforms.ToTensor(),
-            transforms.Normalize((0.06078,), (0.1957,))
-        ])
-    else:
-        train_transformer = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-        ])
-        test_transformer = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))
-        ])
     data_path = params.t_dataset_path + '/' + params.t_dataset_type
-    if params.t_dataset_type == 'cifar10':
-        trainset = torchvision.datasets.CIFAR10(root=data_path, train=True, download=True, transform=train_transformer)
+    if params.t_augmentation == "yes" and params.t_dataset_type == "cifar10":
+        transformer = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize((0.491, 0.482, 0.447), (0.247, 0.243, 0.262))
+        ])
+        test_transformer = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.491, 0.482, 0.447), (0.247, 0.243, 0.262))
+        ])
+        trainset = torchvision.datasets.CIFAR10(root=data_path, train=True, download=True, transform=transformer)
         testset = torchvision.datasets.CIFAR10(root=data_path, train=False, download=True, transform=test_transformer)
-    elif params.t_dataset_type == 'cifar100':
-        trainset = torchvision.datasets.CIFAR100(root=data_path, train=True, download=True, transform=train_transformer)
+    elif params.t_augmentation == "yes" and params.t_dataset_type == "cifar100":
+        transformer = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
+        ])
+        test_transformer = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
+        ])
+        trainset = torchvision.datasets.CIFAR100(root=data_path, train=True, download=True, transform=transformer)
         testset = torchvision.datasets.CIFAR100(root=data_path, train=False, download=True, transform=test_transformer)
-    elif params.t_dataset_type == 'emnist':
-        trainset = torchvision.datasets.EMNIST(root=data_path, train=True, download=True, transform=train_transformer)
-        testset = torchvision.datasets.EMNIST(root=data_path, train=False, download=True, transform=test_transformer)
-    elif params.t_dataset_type == 'svhn':
-        trainset = torchvision.datasets.SVHN(root=data_path, train=True, download=True, transform=train_transformer)
-        testset = torchvision.datasets.SVHN(root=data_path, train=False, download=True, transform=test_transformer)
-    elif params.t_dataset_type == 'fmnist':
-        trainset = torchvision.datasets.FashionMNIST(root=data_path, train=True, download=True, transform=train_transformer)
-        testset = torchvision.datasets.FashionMNIST(root=data_path, train=False, download=True, transform=test_transformer)
-    elif params.t_dataset_type == 'mnist':
-        print(train_transformer)
-        trainset = torchvision.datasets.MNIST(root=data_path, train=True, download=True, transform=train_transformer)
+    elif params.t_augmentation == "yes" and params.t_dataset_type == "fmnist":
+        transformer = transforms.Compose([
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        trainset = torchvision.datasets.FashionMNIST(root=data_path, train=True, download=True, transform=transformer)
+        testset = torchvision.datasets.FashionMNIST(root=data_path, train=False, download=True, transform=transformer)
+    elif params.t_augmentation == "yes" and params.t_dataset_type == "mnist":
+        transformer = transforms.Compose([
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.06078,), (0.1957,))
+        ])
+        trainset = torchvision.datasets.MNIST(root=data_path, train=True, download=True, transform=transformer)
+        testset = torchvision.datasets.MNIST(root=data_path, train=False, download=True, transform=transformer)
+    elif params.t_augmentation == "yes" and params.t_dataset_type == "tiny-imagenet":
+        transformer = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        ])
+        test_transformer = transforms.Compose([
+            transforms.Resize((32, 32)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+        ])
+        trainset = torchvision.datasets.MNIST(root=data_path, train=True, download=True, transform=transformer)
         testset = torchvision.datasets.MNIST(root=data_path, train=False, download=True, transform=test_transformer)
+    elif params.t_augmentation == "yes" and params.t_dataset_type == "emnist":
+        transformer = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(10),
+            transforms.RandomAffine(0, shear=10, scale=(0.8, 1.2)),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        test_transformer = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        trainset = torchvision.datasets.EMNIST(root=data_path, split='balanced', train=True, download=True, transform=transformer)
+        testset = torchvision.datasets.EMNIST(root=data_path, split='balanced', train=False, download=True, transform=test_transformer)
+    else:
+        assert "Invalid dataset"
+
 
     n_classes = len(trainset.classes)
-    if params.t_dataset_type == 'cifar10':
-        idx_batch, DSI_list = getDirichletData(trainset, [1.0/params.n_users for _ in range(params.n_users)], params.alpha, n_classes)
-    else:
-        idx_batch, DSI_list = getDirichletData(trainset, [1.0 / params.n_users for _ in range(params.n_users)],
-                                               params.alpha, n_classes)
+    print("num_classes: {}".format(n_classes))
+    idx_batch, DSI_list = getDirichletData(trainset, [1.0 / params.n_users for _ in range(params.n_users)], params.alpha, n_classes)
 
     trainloader = []
     total_size = 0

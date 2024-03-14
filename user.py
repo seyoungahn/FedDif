@@ -1,19 +1,5 @@
-import logging
-
-import methods.FedAvg
-import utils
 from node import *
-
 from math import ceil
-import time
-
-import models.resnet as resnet
-import models.alexnet as alexnet
-import models.cnn as cnn
-import torch
-import torch.optim as optim
-import os
-
 
 class User(Node):
     def __init__(self, id, x, y, params):
@@ -24,11 +10,10 @@ class User(Node):
 
     def size_to_RB(self, size, se):
         # return size(bits -> number of required RBs)
-        RB_bandwidth = self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB           # 12 subcarriers (180 kHz)
+        RB_bandwidth = self.params.s_subcarrier_bandwidth * self.params.s_n_subcarrier_RB # 12 subcarriers (180 kHz)
         data_rate = RB_bandwidth * se       # in bps
         RB_bit = data_rate * 0.5            # bits / RB (0.5 ms)
         return ceil(size / RB_bit)
-
 
 class PUE(User):
     def __init__(self, id, x, y, params):
@@ -45,6 +30,8 @@ class PUE(User):
         self.data_for_sending = self.params.s_model_size
         self.num_RBs = 0
         self.neighbors = []
+        self.parameter_drift = None
+        self.state_gradient_diff = None
 
     def set_trainloader(self, trainloader):
         self.trainloader = trainloader
